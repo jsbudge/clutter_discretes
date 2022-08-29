@@ -1,0 +1,29 @@
+<ExoClutterGMTIProcessing>
+    <InputFile>./InputFile.txt</InputFile>
+    <Directories>
+        <RawDirectory>/data5/ClutterDiscrete_GMTI_Data/RAW</RawDirectory>
+        <DebugDirectory>/data5/ClutterDiscrete_GMTI_Data/DEBUG</DebugDirectory>
+        <StanagDirectory>./STANAG</StanagDirectory>
+        <VideoDirectory>./GMTIVideos</VideoDirectory>
+        <TruthDirectory>/data5/CornerReflectorGeocoordinates</TruthDirectory>
+        <DTEDDirectory>/data5/dted</DTEDDirectory>
+    </Directories>
+    <CollectionInfo>
+        <Year>2022</Year>
+        <Month>6</Month>
+        <Day>15</Day>
+        <Time>145909</Time>
+    </CollectionInfo>
+    <ProcParameters>
+        <CPILength>128</CPILength>
+        <NearRangePartialPulsePercent>0.0</NearRangePartialPulsePercent>
+        <FarRangePartialPulsePercent>0.0</FarRangePartialPulsePercent>
+        <RangeInterpFactor>1</RangeInterpFactor>
+        <DopplerInterpFactor>1</DopplerInterpFactor>
+        <FDelay>0.0</FDelay>
+        <ExoBroadeningFactor>4.0</ExoBroadeningFactor>
+        <FalseAlarmFactor>1e-9</FalseAlarmFactor>
+        <TruthExistence>False</TruthExistence>
+    </ProcParameters>
+</ExoClutterGMTIProcessing>
+
