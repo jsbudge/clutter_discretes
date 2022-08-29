@@ -31,7 +31,8 @@ DTR = np.pi / 180
 
 # Settings
 sar_fnme = '/data5/SAR_DATA/2022/06152022/SAR_06152022_145909.sar'
-gps_fnme = '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_postCorrectionsGPSData.dat'
+gps_fnme = \
+    '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_postCorrectionsGPSData.dat'
 mf_fnme = '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_1_MatchedFilter.dat'
 ref_fnme = '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_Waveform.dat'
 data_fnme = [
