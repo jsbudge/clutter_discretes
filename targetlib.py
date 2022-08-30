@@ -5,6 +5,12 @@ from scipy.spatial.distance import pdist
 from itertools import combinations
 
 
+# Constants
+c0 = 299792458.0
+kb = 1.3806503e-23
+T0 = 290.0
+
+
 @dataclass
 class Target:
     dopp_idx: float
@@ -28,7 +34,7 @@ class Target:
         self.u = pt[2]
         self.loc = pt
 
-    def calcVel(self, boresight, dopp, dopp_fft_len):
+    def calcVel(self, boresight, dopp, fc, platform_vel):
         # Very first thing, let's resolve wrapping issues if this target
         # has been flagged as being wrapped. It is really kind of sixes to
         # know which way we need to unwrap without further information or
@@ -39,14 +45,14 @@ class Target:
         # of computation. Maybe I'll do that later, I'm not sure buys me
         # much of anything.
         eff_az = np.arctan2(boresight[0], boresight[1])
-        radVelVal = -self.dopp_idx * dopp * 2 / dopp_fft_len
-        self.ve = sin(eff_az) * radVelVal
-        self.vn = cos(eff_az) * radVelVal
+        radVelVal = dopp[int(self.dopp_idx)] * c0 / fc + np.linalg.norm(platform_vel)
+        self.ve = np.sin(eff_az) * radVelVal
+        self.vn = np.cos(eff_az) * radVelVal
         self.vu = 0
 
-    def calc(self, platform, boresight, ranges, origin, dopp, dopp_fft_len):
+    def calc(self, platform, boresight, ranges, origin, dopp, fc, platform_vel):
         self.calcENU(platform, boresight, ranges, origin)
-        self.calcVel(boresight, dopp, dopp_fft_len)
+        self.calcVel(boresight, dopp, fc, platform_vel)
 
     def accept(self, rng_idx, dopp_idx, rng_err, dopp_err):
         Vi = np.linalg.pinv(np.array([[rng_err ** 2, 0],
@@ -116,7 +122,7 @@ class TrackManager(object):
 
     def __init__(self):
         self._tracks = []
-        self._errs = np.array([10, 10, 10, 5, 5, 5.])
+        self._errs = np.array([1, 1, 1, .2, .2, .2])
 
     def add(self, t):
         self._tracks.append(t)

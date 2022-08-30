@@ -22,7 +22,7 @@
         <DopplerInterpFactor>1</DopplerInterpFactor>
         <FDelay>0.0</FDelay>
         <ExoBroadeningFactor>4.0</ExoBroadeningFactor>
-        <FalseAlarmFactor>1e-9</FalseAlarmFactor>
+        <FalseAlarmFactor>1e-10</FalseAlarmFactor>
         <TruthExistence>False</TruthExistence>
     </ProcParameters>
 </ExoClutterGMTIProcessing>

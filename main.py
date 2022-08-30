@@ -44,6 +44,7 @@ gimbal_fnme = [
 csv_fnme = './test.csv'
 do_stanag = False
 do_video = True
+max_cpi_count = 30
 
 # Other settings are contained in the XML file in this same directory, grab them
 config = ExoConfiguration()
@@ -169,7 +170,7 @@ with open(csv_fnme, 'w') as csv:
 
         """Range compress the data from each channel for the CPI"""
         slowtimes = \
-            np.arange(cpi_len * dop_upsample).reshape((1, cpi_len * dop_upsample)) / (sdr_f[0].prf * dop_upsample)
+            np.arange(cpi_len * dop_upsample).reshape((1, cpi_len * dop_upsample)) / (sdr_f[0].prf)
         slowtimePhases = np.zeros((sdr_f.n_channels, nsam * upsample, cpi_len * dop_upsample), dtype=np.complex128)
         for ch in range(sdr_f.n_channels):
             slowtimePhases[ch, ...] = np.exp(1j * 2 * np.pi * -dopCenLine.reshape(nsam * upsample, 1).dot(slowtimes))
@@ -223,6 +224,7 @@ with open(csv_fnme, 'w') as csv:
             antVel, rp.az_half_bw, grazeOverRanges[-1], effAzI,
             headingI, Kexo)
         threshVel = max(MDV, rad_vel_res)
+        myDopps = np.fft.fftshift(np.linspace(-sdr_f[0].prf / 4, sdr_f[0].prf / 4, dop_upsample * cpi_len))
 
         (detMap, noisePower, thresh) = detectExoClutterMoversRVMap(
             magData, threshVel, -threshVel, Pfa, rp.calcWrapVel())
@@ -271,7 +273,7 @@ with open(csv_fnme, 'w') as csv:
         """ Segmentation |||||||||||||||||||||||||||||||||||||||||||||||||||||||"""
         # if cpi_count % 2 == 0:
         targetList = getExoClutterDetectedMoversRVBlob(
-            detMap, antPos, boresightVec.flatten(), myRanges,
+            detMap, antPos, boresightVec.flatten(), myRanges, myDopps, antVel, sdr_f[0].fc,
             rp.origin, antAz)
 
         # Add the detections we got to the dwell track manager
@@ -293,26 +295,16 @@ with open(csv_fnme, 'w') as csv:
         # If wanted, do an animation of the CPI data to see what's going on
         if do_video:
             plotdata = db(magData)
-            if fig is None:
-                fig = px.imshow(plotdata)
-                rng_targets = [t.range_idx for t in tracker.tracks]
-                dopp_targets = [t.dopp_idx for t in tracker.tracks]
-                size_targets = [t.det_sz for t in tracker.tracks]
-                fig2 = px.scatter(x=dopp_targets, y=rng_targets, size=size_targets)
-                fig.add_trace(fig2.data[0])
-            if cpi_count % 10 == 0:
-                fig = px.imshow(plotdata)
-                rng_targets = [t.range_idx for t in tracker.tracks]
-                dopp_targets = [t.dopp_idx for t in tracker.tracks]
-                size_targets = [t.det_sz for t in tracker.tracks]
-                fig2 = px.scatter(x=dopp_targets, y=rng_targets, size=size_targets)
-                fig.add_trace(fig2.data[0])
-                rng_targets = [t.range_idx for t in targetList]
-                dopp_targets = [t.dopp_idx for t in targetList]
-                size_targets = [t.det_sz for t in targetList]
+            fig = px.imshow(plotdata)
+            rng_targets = [t.range_idx for t in tracker.tracks]
+            dopp_targets = [t.dopp_idx for t in tracker.tracks]
+            size_targets = [t.det_sz for t in tracker.tracks]
+            fig2 = px.scatter(x=dopp_targets, y=rng_targets, size=size_targets)
+            fig.add_trace(fig2.data[0])
+            if cpi_count == 1:
                 figplotter.zmin = plotdata.mean() - 3 * plotdata.std()
                 figplotter.zmax = plotdata.mean() + 3 * plotdata.std()
-                figplotter.addFigure(fig)
+            figplotter.addFigure(fig)
                 # figplotter.addFrame([go.Heatmapgl(z=plotdata, colorscale='jet', zmin=figplotter.zmin,
                 #                                   zmax=figplotter.zmax)])
 
@@ -468,8 +460,9 @@ with open(csv_fnme, 'w') as csv:
                     cpiData.append(targetList[closestTarget].antAzR)
                     csvWriter.writerow(cpiData)
                     # break
+        if cpi_count >= max_cpi_count:
+            break
 del slow_time_gpu
 del mfilt_gpu
 cupy.cuda.MemoryPool().free_all_blocks()
-fig.show()
 figplotter.show()

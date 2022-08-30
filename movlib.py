@@ -238,7 +238,7 @@ def getExoClutterDetectedMoversRV(
 
 
 def getExoClutterDetectedMoversRVBlob(
-        cpiDetections, ant_pos, boresight, ranges, origin, ant_az):
+        cpiDetections, ant_pos, boresight, ranges, dopplers, ant_vel, fc, origin, ant_az):
     """Converts a 2D binary detection output for the ranges to a dictionary
     of movers with their average range bin and Velocity bin.
     Inputs:
@@ -262,7 +262,7 @@ def getExoClutterDetectedMoversRVBlob(
         # create an array of TargetDetection objects and iniitalize the first
         # one with the first pixel index in our list
         targets = [Target(velBins[0], rangeBins[0], ant_az[rangeBins[0], velBins[0]], sizes[0])]
-        targets[0].calcENU(ant_pos, boresight, ranges, origin)
+        targets[0].calc(ant_pos, boresight, ranges, origin, dopplers, fc, ant_vel)
         # initialize the number of targets
         numTargets = 1
 
@@ -273,14 +273,14 @@ def getExoClutterDetectedMoversRVBlob(
             for iT in reversed(range(numTargets)):
                 new_target = targets[iT].accept(rangeBins[iP], velBins[iP], 2, 5)
                 if new_target:
-                    targets[iT].calcENU(ant_pos, boresight, ranges, origin)
+                    targets[iT].calc(ant_pos, boresight, ranges, origin, dopplers, fc, ant_vel)
                     break
 
             # Check to see if the index was added to a target, if not we need
             # to create a new target and add the index to it
             if not new_target:
                 t = Target(velBins[iP], rangeBins[iP], ant_az[rangeBins[iP], velBins[iP]], sizes[iP])
-                t.calcENU(ant_pos, boresight, ranges, origin)
+                t.calc(ant_pos, boresight, ranges, origin, dopplers, fc, ant_vel)
                 targets.append(t)
                 numTargets += 1
     return targets
