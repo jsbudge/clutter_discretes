@@ -278,10 +278,11 @@ with open(csv_fnme, 'w') as csv:
 
         # Add the detections we got to the dwell track manager
         for t in targetList:
-            tracker.add(t)
+            tracker.add(t, ts[0])
 
+        tracker.update(ts[0])
         tracker.fuse()
-        tracker.propogate(timeSinceValidCPI)
+        tracker.propogate(timeSinceValidCPI if timeSinceValidCPI > 0 else cpi_time)
 
         """ Parameter Estimation |||||||||||||||||||||||||||||||||||||||||||||||"""
         # First, compute the hAgl (to get closer to the actual hAgl, we should
@@ -294,16 +295,20 @@ with open(csv_fnme, 'w') as csv:
 
         # If wanted, do an animation of the CPI data to see what's going on
         if do_video:
-            plotdata = db(magData)
-            fig = px.imshow(plotdata)
-            rng_targets = [t.range_idx for t in tracker.tracks]
-            dopp_targets = [t.dopp_idx for t in tracker.tracks]
-            size_targets = [t.det_sz for t in tracker.tracks]
-            fig2 = px.scatter(x=dopp_targets, y=rng_targets, size=size_targets)
-            fig.add_trace(fig2.data[0])
-            if cpi_count == 1:
-                figplotter.zmin = plotdata.mean() - 3 * plotdata.std()
-                figplotter.zmax = plotdata.mean() + 3 * plotdata.std()
+            # plotdata = db(magData)
+            # fig = px.imshow(plotdata)
+            # rng_targets = [t.range_idx for t in tracker.tracks]
+            # dopp_targets = [t.dopp_idx for t in tracker.tracks]
+            e_trg = [t.e for t in tracker.tracks]
+            n_trg = [t.n for t in tracker.tracks]
+            u_trg = [t.u for t in tracker.tracks]
+            fig = px.scatter_3d(x=e_trg, y=n_trg, z=u_trg)
+            # size_targets = [t.det_sz for t in tracker.tracks]
+            # fig2 = px.scatter(x=dopp_targets, y=rng_targets, size=size_targets)
+            # fig.add_trace(fig2.data[0])
+            # if cpi_count == 1:
+            #     figplotter.zmin = plotdata.mean() - 3 * plotdata.std()
+            #     figplotter.zmax = plotdata.mean() + 3 * plotdata.std()
             figplotter.addFigure(fig)
                 # figplotter.addFrame([go.Heatmapgl(z=plotdata, colorscale='jet', zmin=figplotter.zmin,
                 #                                   zmax=figplotter.zmax)])
@@ -466,3 +471,10 @@ del slow_time_gpu
 del mfilt_gpu
 cupy.cuda.MemoryPool().free_all_blocks()
 figplotter.show()
+
+tr1 = np.array(tracker.tracks[0].log)
+fig = px.scatter_3d(x=tr1[:, 0], y=tr1[:, 1], z=tr1[:, 2])
+for tr in tracker.tracks:
+    tr1 = np.array(tr.log)
+    fig.add_scatter3d(x=tr1[:, 0], y=tr1[:, 1], z=tr1[:, 2])
+fig.show()

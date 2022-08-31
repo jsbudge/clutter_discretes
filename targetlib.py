@@ -11,19 +11,22 @@ kb = 1.3806503e-23
 T0 = 290.0
 
 
-@dataclass
 class Target:
-    dopp_idx: float
-    range_idx: float
-    ant_az: float
-    det_sz: float = 1.
-    n_pts: int = 1
-    e: float = 0
-    n: float = 0
-    u: float = 0
-    ve: float = 0
-    vn: float = 0
-    vu: float = 0
+
+    def __init__(self, dopp_idx: float, range_idx: float, ant_az: float, det_sz: float = 1., n_pts: int = 1,
+                 e: float = 0, n: float = 0, u: float = 0, ve: float = 0, vn: float = 0, vu: float = 0):
+        self.dopp_idx = dopp_idx
+        self.range_idx = range_idx
+        self.ant_az = ant_az
+        self.det_sz = det_sz
+        self.n_pts = n_pts
+        self.e = e
+        self.n = n
+        self.u = u
+        self.ve = ve
+        self.vn = vn
+        self.vu = vu
+        self.log = []
 
     def calcENU(self, platform, boresight, ranges, origin):
         pt = calcGroundENU(self.range_idx, platform, boresight, ranges, origin)
@@ -35,34 +38,31 @@ class Target:
         self.loc = pt
 
     def calcVel(self, boresight, dopp, fc, platform_vel):
-        # Very first thing, let's resolve wrapping issues if this target
-        # has been flagged as being wrapped. It is really kind of sixes to
-        # know which way we need to unwrap without further information or
-        # more of a data history on the target. So, we could either choose
-        # up always, or we could try unwrapping toward the side with the
-        # greater mass. I really don't know if that will buy us anything or
-        # be of much benefit though. Or whether it will be worth the cost
-        # of computation. Maybe I'll do that later, I'm not sure buys me
-        # much of anything.
-        eff_az = np.arctan2(boresight[0], boresight[1])
-        radVelVal = dopp[int(self.dopp_idx)] * c0 / fc + np.linalg.norm(platform_vel)
-        self.ve = np.sin(eff_az) * radVelVal
-        self.vn = np.cos(eff_az) * radVelVal
-        self.vu = 0
+        self.ve, self.vn, self.vu = calcDoppVel(boresight, dopp, self.dopp_idx, fc)
 
     def calc(self, platform, boresight, ranges, origin, dopp, fc, platform_vel):
         self.calcENU(platform, boresight, ranges, origin)
         self.calcVel(boresight, dopp, fc, platform_vel)
+        self.log.append(np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu]))
 
-    def accept(self, rng_idx, dopp_idx, rng_err, dopp_err):
+    def accept(self, rng_idx, dopp_idx, boresight, platform, origin, ranges, dopp, fc, rng_err=2, dopp_err=5):
         Vi = np.linalg.pinv(np.array([[rng_err ** 2, 0],
                                       [0, dopp_err ** 2]]))
         mu = np.array([self.range_idx, self.dopp_idx])
         x = np.array([rng_idx, dopp_idx])
         dist = np.sqrt((x - mu).dot(Vi).dot(x - mu))
         if dist < 5:
+            poss_pt = calcGroundENU(rng_idx, platform, boresight, ranges, origin)
+            poss_vel = calcDoppVel(boresight, dopp, dopp_idx, fc)
             self.range_idx = self.range_idx + (rng_idx - self.range_idx) / (self.n_pts + 1)
             self.dopp_idx = self.dopp_idx + (dopp_idx - self.dopp_idx) / (self.n_pts + 1)
+            self.e = self.e + (poss_pt[0] - self.e) / (self.n_pts + 1)
+            self.n = self.n + (poss_pt[1] - self.n) / (self.n_pts + 1)
+            self.u = self.u + (poss_pt[2] - self.u) / (self.n_pts + 1)
+            self.ve = self.ve + (poss_vel[0] - self.ve) / (self.n_pts + 1)
+            self.vn = self.vn + (poss_vel[1] - self.vn) / (self.n_pts + 1)
+            self.vu = self.vu + (poss_vel[2] - self.vu) / (self.n_pts + 1)
+            self.log[-1] = np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu])
             self.n_pts += 1
             return True
         else:
@@ -80,11 +80,13 @@ class Target:
         self.ve = (self.ve + ot.ve) / 2
         self.vn = (self.vn + ot.vn) / 2
         self.vu = (self.vu + ot.vu) / 2
+        self.log[-1] = np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu])
 
     def move(self, ts):
         self.e += self.ve * ts
         self.n += self.vn * ts
         self.u += self.vu * ts
+        self.log.append(np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu]))
 
 
 def calcGroundENU(rng_idx, platform, boresight, ranges, origin):
@@ -117,15 +119,47 @@ def calcGroundENU(rng_idx, platform, boresight, ranges, origin):
     return platform + Rvec * rng
 
 
+def calcDoppVel(boresight, dopp, dopp_idx, fc):
+    # Very first thing, let's resolve wrapping issues if this target
+    # has been flagged as being wrapped. It is really kind of sixes to
+    # know which way we need to unwrap without further information or
+    # more of a data history on the target. So, we could either choose
+    # up always, or we could try unwrapping toward the side with the
+    # greater mass. I really don't know if that will buy us anything or
+    # be of much benefit though. Or whether it will be worth the cost
+    # of computation. Maybe I'll do that later, I'm not sure buys me
+    # much of anything.
+    eff_az = np.arctan2(boresight[0], boresight[1])
+    radVelVal = dopp[int(dopp_idx)] * c0 / fc
+    return np.array([np.sin(eff_az) * radVelVal, np.cos(eff_az) * radVelVal, 0])
+
+
 class TrackManager(object):
     _tracks = None
 
-    def __init__(self):
+    def __init__(self, deadtrack_time=.01):
         self._tracks = []
-        self._errs = np.array([1, 1, 1, .2, .2, .2])
+        self._dt = deadtrack_time
+        self.update_times = []
+        self._errs = np.array([100, 100, 100, 2, 2, 2.])
 
-    def add(self, t):
-        self._tracks.append(t)
+    def add(self, t, current_time, threshold=10):
+        if len(self._tracks) > 1:
+            # Calculate Mahal distance between t and the tracks
+            Vi = np.linalg.pinv(np.diag(self._errs))
+            pv = self.getTrackPosVel()
+            mu = np.array([t.e, t.n, t.u, t.ve, t.vn, t.vu])
+            dists = np.array([np.sqrt((pv[n, :] - mu).dot(Vi.dot(pv[n, :] - mu))) for n in range(len(self._tracks))])
+            if np.any(dists < threshold):
+                tr = np.where(dists == dists.min())[0][0]
+                self._tracks[tr].merge(t)
+                self.update_times[tr] = current_time
+            else:
+                self._tracks.append(t)
+                self.update_times.append(current_time)
+        else:
+            self._tracks.append(t)
+            self.update_times.append(current_time)
 
     def propogate(self, ts):
         # For each of the tracks, update the position based on radial velocity
@@ -154,9 +188,13 @@ class TrackManager(object):
             # Remove all the merged tracks in reverse order so they don't mess each other up
             for idx in sorted(np.arange(len(self._tracks))[nuke], reverse=True):
                 del self._tracks[idx]
+                del self.update_times[idx]
 
-    def split(self):
-        pass
+    def update(self, ts):
+        nuke = [idx for idx in range(len(self._tracks)) if self.update_times[idx] < ts - self._dt]
+        for idx in sorted(nuke, reverse=True):
+            del self._tracks[idx]
+            del self.update_times[idx]
 
     def getTrackPosVel(self):
         return np.array([[t.e, t.n, t.u, t.ve, t.vn, t.vu] for t in self._tracks])
