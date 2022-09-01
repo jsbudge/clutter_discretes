@@ -11,7 +11,6 @@ from ExoConfigParserModule import ExoConfiguration
 from matched_filters import GetAdvMatchedFilter, window_taylor
 import cupy as cupy
 from tqdm import tqdm
-from celluloid import Camera
 from stanaggenerator import StanagGenerator
 import plotly.express as px
 import plotly.graph_objects as go
@@ -30,17 +29,20 @@ T0 = 290.0
 DTR = np.pi / 180
 
 # Settings
-sar_fnme = '/data5/SAR_DATA/2022/06152022/SAR_06152022_145909.sar'
+sar_dir = '/media/jeff/B9D7-DF3D/SAR_DATA/'
+sar_fnme = sar_dir + 'SAR_06152022_145909.sar'
+debug_dir = '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/'
+debug_dir = '/media/jeff/B9D7-DF3D/Debug/'
 gps_fnme = \
-    '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_postCorrectionsGPSData.dat'
-mf_fnme = '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_1_MatchedFilter.dat'
-ref_fnme = '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_Waveform.dat'
+    debug_dir + 'SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_postCorrectionsGPSData.dat'
+mf_fnme = debug_dir + 'SAR_06152022_145909_Channel_1_MatchedFilter.dat'
+ref_fnme = debug_dir + 'SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_Waveform.dat'
 data_fnme = [
-    '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_RawData.dat',
-    '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_2_X-Band_9_GHz_VV_RawData.dat']
+    debug_dir + 'SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_RawData.dat',
+    debug_dir + 'SAR_06152022_145909_Channel_2_X-Band_9_GHz_VV_RawData.dat']
 gimbal_fnme = [
-    '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_GimbalData.dat',
-    '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/SAR_06152022_145909_Channel_2_X-Band_9_GHz_VV_GimbalData.dat']
+    debug_dir + 'SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_GimbalData.dat',
+    debug_dir + 'SAR_06152022_145909_Channel_2_X-Band_9_GHz_VV_GimbalData.dat']
 csv_fnme = './test.csv'
 do_stanag = False
 do_video = True
