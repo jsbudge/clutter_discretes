@@ -271,7 +271,8 @@ def getExoClutterDetectedMoversRVBlob(
             new_target = False
             # attempt to add the index to the existing targets
             for iT in reversed(range(numTargets)):
-                new_target = targets[iT].accept(rangeBins[iP], velBins[iP], boresight, ant_pos, origin, ranges, dopplers, fc)
+                new_target = targets[iT].accept(rangeBins[iP], velBins[iP], boresight, ant_pos, ant_vel, origin,
+                                                ranges, dopplers, fc)
                 if new_target:
                     targets[iT].calc(ant_pos, boresight, ranges, origin, dopplers, fc, ant_vel)
                     break

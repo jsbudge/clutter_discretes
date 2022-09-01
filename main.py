@@ -6,7 +6,7 @@ from scipy.signal.windows import taylor
 from movlib import getDopplerLine, computeExoMDV, detectExoClutterMoversRVMap, getExoClutterDetectedMoversRVBlob, \
     getStanagDwellSegmentData
 from simulation_functions import findPowerOf2, db, enu2llh, getElevation, loadMatchedFilter, loadReferenceChirp, \
-    getRawData
+    getRawData, getElevationMap, llh2enu
 from ExoConfigParserModule import ExoConfiguration
 from matched_filters import GetAdvMatchedFilter, window_taylor
 import cupy as cupy
@@ -16,6 +16,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 from targetlib import TrackManager
+import matplotlib.animation as animation
+import matplotlib.pyplot as plt
 
 # pio.renderers.default = 'svg'
 pio.renderers.default = 'browser'
@@ -29,10 +31,11 @@ T0 = 290.0
 DTR = np.pi / 180
 
 # Settings
-sar_dir = '/media/jeff/B9D7-DF3D/SAR_DATA/'
+# sar_dir = '/media/jeff/B9D7-DF3D/SAR_DATA/'
+sar_dir = '/data5/SAR_DATA/2022/06152022/'
 sar_fnme = sar_dir + 'SAR_06152022_145909.sar'
 debug_dir = '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/'
-debug_dir = '/media/jeff/B9D7-DF3D/Debug/'
+# debug_dir = '/media/jeff/B9D7-DF3D/Debug/'
 gps_fnme = \
     debug_dir + 'SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_postCorrectionsGPSData.dat'
 mf_fnme = debug_dir + 'SAR_06152022_145909_Channel_1_MatchedFilter.dat'
@@ -46,7 +49,7 @@ gimbal_fnme = [
 csv_fnme = './test.csv'
 do_stanag = False
 do_video = True
-max_cpi_count = 30
+max_cpi_count = 1500
 
 # Other settings are contained in the XML file in this same directory, grab them
 config = ExoConfiguration()
@@ -123,6 +126,7 @@ slowTimeWithChannels[0, ...] = slowTimeWindow.T
 slowTimeWithChannels[1, ...] = slowTimeWindow.T
 slow_time_gpu = cupy.array(slowTimeWithChannels, dtype=np.complex128)
 fig = None
+plotdata = []
 
 with open(csv_fnme, 'w') as csv:
     idx_t = np.arange(nframes)
@@ -172,7 +176,7 @@ with open(csv_fnme, 'w') as csv:
 
         """Range compress the data from each channel for the CPI"""
         slowtimes = \
-            np.arange(cpi_len * dop_upsample).reshape((1, cpi_len * dop_upsample)) / (sdr_f[0].prf)
+            np.arange(cpi_len * dop_upsample).reshape((1, cpi_len * dop_upsample)) / sdr_f[0].prf
         slowtimePhases = np.zeros((sdr_f.n_channels, nsam * upsample, cpi_len * dop_upsample), dtype=np.complex128)
         for ch in range(sdr_f.n_channels):
             slowtimePhases[ch, ...] = np.exp(1j * 2 * np.pi * -dopCenLine.reshape(nsam * upsample, 1).dot(slowtimes))
@@ -226,7 +230,7 @@ with open(csv_fnme, 'w') as csv:
             antVel, rp.az_half_bw, grazeOverRanges[-1], effAzI,
             headingI, Kexo)
         threshVel = max(MDV, rad_vel_res)
-        myDopps = np.fft.fftshift(np.linspace(-sdr_f[0].prf / 4, sdr_f[0].prf / 4, dop_upsample * cpi_len))
+        myDopps = np.fft.fftshift(np.linspace(-wrapVel, wrapVel, dop_upsample * cpi_len))
 
         (detMap, noisePower, thresh) = detectExoClutterMoversRVMap(
             magData, threshVel, -threshVel, Pfa, rp.calcWrapVel())
@@ -297,23 +301,7 @@ with open(csv_fnme, 'w') as csv:
 
         # If wanted, do an animation of the CPI data to see what's going on
         if do_video:
-            # plotdata = db(magData)
-            # fig = px.imshow(plotdata)
-            # rng_targets = [t.range_idx for t in tracker.tracks]
-            # dopp_targets = [t.dopp_idx for t in tracker.tracks]
-            e_trg = [t.e for t in tracker.tracks]
-            n_trg = [t.n for t in tracker.tracks]
-            u_trg = [t.u for t in tracker.tracks]
-            fig = px.scatter_3d(x=e_trg, y=n_trg, z=u_trg)
-            # size_targets = [t.det_sz for t in tracker.tracks]
-            # fig2 = px.scatter(x=dopp_targets, y=rng_targets, size=size_targets)
-            # fig.add_trace(fig2.data[0])
-            # if cpi_count == 1:
-            #     figplotter.zmin = plotdata.mean() - 3 * plotdata.std()
-            #     figplotter.zmax = plotdata.mean() + 3 * plotdata.std()
-            figplotter.addFigure(fig)
-                # figplotter.addFrame([go.Heatmapgl(z=plotdata, colorscale='jet', zmin=figplotter.zmin,
-                #                                   zmax=figplotter.zmax)])
+            plotdata.append(db(magData))
 
         # We need to generate the STANAG info and write it out to the stream. We get
         #   the data from the targets themselves for the target reports, and from
@@ -472,10 +460,65 @@ with open(csv_fnme, 'w') as csv:
 del slow_time_gpu
 del mfilt_gpu
 cupy.cuda.MemoryPool().free_all_blocks()
-figplotter.show()
+velStep = myDopps[1] - myDopps[0]
+fig = plt.figure()
+ax = plt.axes(
+    xlim=[0.5 * velStep, (wrapVel * 2 - velStep / 2.0)],
+    ylim=[myRanges[0], myRanges[-1]])
+imageDat = ax.imshow(
+    magData, cmap='jet', origin='lower', interpolation='nearest',
+    extent=[0.5 * velStep, (wrapVel * 2 - velStep / 2.0),
+            myRanges[0], myRanges[-1]], aspect='auto',
+    vmin=plotdata[0].max() - 60, vmax=plotdata[0].max())
+targ_log = np.array(tracker.tracks[0].log)
+targ_rvel = np.linalg.norm(targ_log[:, 3:], axis=1)
+trackplot, = ax.scatter(targ_rvel[0], myRanges[int(tracker.tracks[0].range_idx)])
+ax.set_xlabel('Radial Velocity (m/s)')
+ax.set_ylabel('Range (m)')
+ax.set_title('Nuts')
+# plot the clutter boundary lines
+lowerVThreshDat = ax.axvline(x=1, color='red')
+upperVThreshDat = ax.axvline(x=5, color='red')
+truthPlotDat, = ax.plot(0, myRanges[0], 'ro', markersize=15, fillstyle='none')
+
+
+def init():
+    # Set the image data with random noise
+    imageDat.set_array(np.random.random((nsam, cpi_len)))
+    trackplot.set_array(targ_rvel[0], myRanges[int(tracker.tracks[0].range_idx)])
+    lowerVThreshDat.set_xdata(20)
+    upperVThreshDat.set_xdata(60)
+    truthPlotDat.set_xdata(0)
+    truthPlotDat.set_ydata(myRanges[0])
+
+    return imageDat, lowerVThreshDat, upperVThreshDat, truthPlotDat
+
+
+def animate(i):
+    # Set the plot data
+    imageDat.set_array(plotdata[i])
+    trackplot.set_array(targ_rvel[i], myRanges[int(tracker.tracks[0].range_idx)])
+    lowerVThreshDat.set_xdata(threshVel + velStep)
+    upperVThreshDat.set_xdata(wrapVel * 2 - threshVel + velStep)
+    ax.set_title('CPINum: %d' % i)
+    return imageDat, lowerVThreshDat, upperVThreshDat, truthPlotDat
+
+
+""" Run the animation """
+anim = animation.FuncAnimation(
+    fig, animate, init_func=init, frames=len(plotdata) - 1,
+    interval=cpi_time / 1e-3, blit=True)
+
+# Save the animation as mp4 video file
+anim.save('./Test_TruthRDVideo.mp4')
 
 tr1 = np.array(tracker.tracks[0].log)
+mx, my = np.meshgrid(np.linspace(-100, 500, 30), np.linspace(1300, 2800, 30))
+mlat, mlon, malt = enu2llh(mx.ravel(), my.ravel(), np.zeros((mx.shape[0] * mx.shape[1],)), rp.origin)
+malt = getElevationMap(mlat, mlon)
+me, mn, mu = llh2enu(mlat, mlon, malt, rp.origin)
 fig = px.scatter_3d(x=tr1[:, 0], y=tr1[:, 1], z=tr1[:, 2])
+# fig.add_mesh3d(x=me, y=mn, z=mu)
 for tr in tracker.tracks:
     tr1 = np.array(tr.log)
     fig.add_scatter3d(x=tr1[:, 0], y=tr1[:, 1], z=tr1[:, 2])
