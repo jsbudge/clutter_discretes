@@ -14,8 +14,9 @@ T0 = 290.0
 
 class Target:
 
-    def __init__(self, dopp_idx: float, range_idx: float, ant_az: float, det_sz: float = 1., n_pts: int = 1,
-                 e: float = 0, n: float = 0, u: float = 0, ve: float = 0, vn: float = 0, vu: float = 0):
+    def __init__(self, fd_o, r_o, ant_pos, ant_vel):
+        init_state = np.array([fd_o, r_o, *ant_pos, *ant_vel])
+        self._kf = UKF()
         self.dopp_idx = dopp_idx
         self.range_idx = range_idx
         self.ant_az = ant_az
@@ -92,6 +93,40 @@ class Target:
         self.n += self.vn * ts
         self.u += self.vu * ts
         self.log.append(np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu, self.dopp_idx, self.range_idx]))
+
+
+def process(x, dt=1.0):
+    new_state = np.zeros((len(x),))
+    new_plane_pos = x[2:5] + x[5:8]
+    new_targ_pos = x[8:11] + x[11:14]
+    boresight = new_plane_pos - new_targ_pos
+    boresight /= np.linalg.norm(boresight)
+    # Radial velocity
+    new_state[0] = np.linalg.norm(x[5:8] - x[11:14]) * np.sign(np.cross(boresight, x[5:8]))
+    # Range to target
+    new_state[1] = np.linalg.norm(new_plane_pos - new_targ_pos)
+    # Plane pos
+    new_state[2:5] = new_plane_pos
+    # Plane vel
+    new_state[5:8] = x[5:8]
+    # Target pos
+    new_state[8:11] = new_targ_pos
+    # Target vel
+    new_state[11:14] = x[11:14]
+    return new_state
+
+
+def measure(state, dt=1.0):
+    new_meas = np.zeros((8,))
+    # Radial velocity
+    new_meas[0] = state[0]
+    # Range to target
+    new_meas[1] = state[1]
+    # Plane pos
+    new_meas[2:5] = state[2:5]
+    # Plane vel
+    new_meas[5:8] = state[5:8]
+    return new_meas
 
 
 def calcGroundENU(rng_idx, platform, boresight, ranges, origin):
