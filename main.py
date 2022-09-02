@@ -31,11 +31,11 @@ T0 = 290.0
 DTR = np.pi / 180
 
 # Settings
-# sar_dir = '/media/jeff/B9D7-DF3D/SAR_DATA/'
+# sar_dir = '/home/jeff/repo/SAR_DATA/06152022/'
 sar_dir = '/data5/SAR_DATA/2022/06152022/'
 sar_fnme = sar_dir + 'SAR_06152022_145909.sar'
 debug_dir = '/data5/ClutterDiscrete_GMTI_Data/DEBUG/06152022/'
-# debug_dir = '/media/jeff/B9D7-DF3D/Debug/'
+# debug_dir = '/home/jeff/repo/Debug/'
 gps_fnme = \
     debug_dir + 'SAR_06152022_145909_Channel_1_X-Band_9_GHz_VV_postCorrectionsGPSData.dat'
 mf_fnme = debug_dir + 'SAR_06152022_145909_Channel_1_MatchedFilter.dat'
@@ -278,6 +278,7 @@ with open(csv_fnme, 'w') as csv:
 
         """ Segmentation |||||||||||||||||||||||||||||||||||||||||||||||||||||||"""
         # if cpi_count % 2 == 0:
+        tracker.predict_all()
         targetList = getExoClutterDetectedMoversRVBlob(
             detMap, antPos, boresightVec.flatten(), myRanges, myDopps, antVel, sdr_f[0].fc,
             rp.origin, antAz)

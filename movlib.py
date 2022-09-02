@@ -261,8 +261,7 @@ def getExoClutterDetectedMoversRVBlob(
         # convert the range and Doppler bins to floats
         # create an array of TargetDetection objects and iniitalize the first
         # one with the first pixel index in our list
-        targets = [Target(velBins[0], rangeBins[0], ant_az[rangeBins[0], velBins[0]], sizes[0])]
-        targets[0].calc(ant_pos, boresight, ranges, origin, dopplers, fc, ant_vel)
+        targets = [Target(dopplers[velBins[0]], ranges[rangeBins[0]], ant_pos, ant_vel)]
         # initialize the number of targets
         numTargets = 1
 
@@ -271,17 +270,14 @@ def getExoClutterDetectedMoversRVBlob(
             new_target = False
             # attempt to add the index to the existing targets
             for iT in reversed(range(numTargets)):
-                new_target = targets[iT].accept(rangeBins[iP], velBins[iP], boresight, ant_pos, ant_vel, origin,
-                                                ranges, dopplers, fc)
+                new_target = targets[iT].accept(dopplers[velBins[iP]], ranges[rangeBins[iP]], ant_pos, ant_vel)
                 if new_target:
-                    targets[iT].calc(ant_pos, boresight, ranges, origin, dopplers, fc, ant_vel)
                     break
 
             # Check to see if the index was added to a target, if not we need
             # to create a new target and add the index to it
             if not new_target:
-                t = Target(velBins[iP], rangeBins[iP], ant_az[rangeBins[iP], velBins[iP]], sizes[iP])
-                t.calc(ant_pos, boresight, ranges, origin, dopplers, fc, ant_vel)
+                t = Target(dopplers[velBins[iP]], ranges[rangeBins[iP]], ant_pos, ant_vel)
                 targets.append(t)
                 numTargets += 1
     return targets

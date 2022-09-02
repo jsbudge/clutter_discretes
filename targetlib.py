@@ -16,83 +16,40 @@ class Target:
 
     def __init__(self, fd_o, r_o, ant_pos, ant_vel):
         init_state = np.array([fd_o, r_o, *ant_pos, *ant_vel])
-        self._kf = UKF()
-        self.dopp_idx = dopp_idx
-        self.range_idx = range_idx
-        self.ant_az = ant_az
-        self.det_sz = det_sz
-        self.n_pts = n_pts
-        self.e = e
-        self.n = n
-        self.u = u
-        self.ve = ve
-        self.vn = vn
-        self.vu = vu
-        self.log = []
-        self.loc = None
+        self._kf = UKF(init_state, process, measure)
+        self.poss_z = np.zeros((8,))
+        self.n_z = 0
 
-    def calcENU(self, platform, boresight, ranges, origin):
-        pt = calcGroundENU(self.range_idx, platform, boresight, ranges, origin)
-
-        # Set the point in our object
-        self.e = pt[0]
-        self.n = pt[1]
-        self.u = pt[2]
-        self.loc = pt
-
-    def calcVel(self, boresight, dopp, fc, platform_vel):
-        self.ve, self.vn, self.vu = calcDoppVel(boresight, dopp, self.dopp_idx, fc, platform_vel)
-
-    def calc(self, platform, boresight, ranges, origin, dopp, fc, platform_vel):
-        self.calcENU(platform, boresight, ranges, origin)
-        self.calcVel(boresight, dopp, fc, platform_vel)
-        if len(self.log) == 0:
-            self.log.append(np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu, self.dopp_idx,
-                                      self.range_idx]))
-
-    def accept(self, rng_idx, dopp_idx, boresight, platform, platform_vel, origin, ranges, dopp, fc,
-               rng_err=2, dopp_err=5):
-        Vi = np.linalg.pinv(np.array([[rng_err ** 2, 0],
-                                      [0, dopp_err ** 2]]))
-        mu = np.array([self.range_idx, self.dopp_idx])
-        x = np.array([rng_idx, dopp_idx])
+    def accept(self, fd, rng, ant_pos, ant_vel):
+        Vi = np.linalg.pinv(self._kf.Q)
+        mu = self._kf.getMeasurement()
+        x = np.array([fd, rng, *ant_pos, *ant_vel])
         dist = np.sqrt((x - mu).dot(Vi).dot(x - mu))
         if dist < 5:
-            poss_pt = calcGroundENU(rng_idx, platform, boresight, ranges, origin)
-            poss_vel = calcDoppVel(boresight, dopp, dopp_idx, fc, platform_vel)
-            self.range_idx = self.range_idx + (rng_idx - self.range_idx) / (self.n_pts + 1)
-            self.dopp_idx = self.dopp_idx + (dopp_idx - self.dopp_idx) / (self.n_pts + 1)
-            self.e = self.e + (poss_pt[0] - self.e) / (self.n_pts + 1)
-            self.n = self.n + (poss_pt[1] - self.n) / (self.n_pts + 1)
-            self.u = self.u + (poss_pt[2] - self.u) / (self.n_pts + 1)
-            self.ve = self.ve + (poss_vel[0] - self.ve) / (self.n_pts + 1)
-            self.vn = self.vn + (poss_vel[1] - self.vn) / (self.n_pts + 1)
-            self.vu = self.vu + (poss_vel[2] - self.vu) / (self.n_pts + 1)
-            self.log[-1] = np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu, self.dopp_idx, self.range_idx])
-            self.n_pts += 1
+            self.poss_z += x
+            self.n_z += 1
             return True
         else:
             return False
 
-    def merge(self, ot):
-        self.dopp_idx = (self.dopp_idx + ot.dopp_idx) / 2
-        self.range_idx = (self.range_idx + ot.range_idx) / 2
-        self.ant_az = (self.ant_az + ot.ant_az) / 2
-        self.det_sz = max(self.det_sz, ot.det_sz)
-        self.n_pts = max(self.n_pts, ot.n_pts)
-        self.e = (self.e + ot.e) / 2
-        self.n = (self.n + ot.n) / 2
-        self.u = (self.u + ot.u) / 2
-        self.ve = (self.ve + ot.ve) / 2
-        self.vn = (self.vn + ot.vn) / 2
-        self.vu = (self.vu + ot.vu) / 2
-        self.log[-1] = np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu, self.dopp_idx, self.range_idx])
+    def predict(self):
+        self._kf.predict()
 
-    def move(self, ts):
-        self.e += self.ve * ts
-        self.n += self.vn * ts
-        self.u += self.vu * ts
-        self.log.append(np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu, self.dopp_idx, self.range_idx]))
+    def update(self, curr_cpi):
+        if self.n_z != 0:
+            z = self.poss_z / self.n_z
+            self._kf.update(z, curr_cpi)
+            self.poss_z = np.zeros((8,))
+            self.n_z = 0
+            return True
+        return False
+
+    def merge(self, to):
+        self._kf.x = (self._kf.x + to.x) / 2
+
+    @property
+    def x(self):
+        return self._kf.x
 
 
 def process(x, dt=1.0):
@@ -185,14 +142,14 @@ class TrackManager(object):
         self._dt = deadtrack_time
         self.update_times = []
         self.dead_updates = []
-        self._errs = np.array([30, 30, 1, 4, 4, 1.])
+        self._errs = np.array([5, 10, 2, 2, 2, 2, 2, 2])
 
     def add(self, t, current_time, threshold=10):
         if len(self._tracks) > 1:
             # Calculate Mahal distance between t and the tracks
             Vi = np.linalg.pinv(np.diag(self._errs))
             pv = self.getTrackPosVel()
-            mu = np.array([t.e, t.n, t.u, t.ve, t.vn, t.vu])
+            mu = np.array([t.x[8:14]])
             dists = np.array([np.sqrt((pv[n, :] - mu).dot(Vi.dot(pv[n, :] - mu))) for n in range(len(self._tracks))])
             if np.any(dists < threshold):
                 tr = np.where(dists == dists.min())[0][0]
@@ -236,15 +193,19 @@ class TrackManager(object):
                 del self.update_times[idx]
 
     def update(self, ts):
+        for t in self._tracks:
+            t.update(ts)
         nuke = [idx for idx in range(len(self._tracks)) if self.update_times[idx][-1] < ts - self._dt]
         for idx in sorted(nuke, reverse=True):
             self._deadtracks.append(self._tracks.pop(idx))
             self.dead_updates.append(self.update_times.pop(idx))
-            # del self._tracks[idx]
-            # del self.update_times[idx]
+
+    def predict_all(self):
+        for t in self._tracks:
+            t.predict()
 
     def getTrackPosVel(self):
-        return np.array([[t.e, t.n, t.u, t.ve, t.vn, t.vu] for t in self._tracks])
+        return np.array([t.x[8:14] for t in self._tracks])
 
     @property
     def tracks(self):
