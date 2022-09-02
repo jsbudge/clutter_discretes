@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from simulation_functions import getElevation, enu2llh
 from scipy.spatial.distance import pdist
 from itertools import combinations
+from kalman import UKF
 
 
 # Constants
@@ -44,7 +45,9 @@ class Target:
     def calc(self, platform, boresight, ranges, origin, dopp, fc, platform_vel):
         self.calcENU(platform, boresight, ranges, origin)
         self.calcVel(boresight, dopp, fc, platform_vel)
-        self.log.append(np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu, self.dopp_idx, self.range_idx]))
+        if len(self.log) == 0:
+            self.log.append(np.array([self.e, self.n, self.u, self.ve, self.vn, self.vu, self.dopp_idx,
+                                      self.range_idx]))
 
     def accept(self, rng_idx, dopp_idx, boresight, platform, platform_vel, origin, ranges, dopp, fc,
                rng_err=2, dopp_err=5):
@@ -141,10 +144,12 @@ def calcDoppVel(boresight, dopp, dopp_idx, fc, platform_vel):
 class TrackManager(object):
     _tracks = None
 
-    def __init__(self, deadtrack_time=.05):
+    def __init__(self, deadtrack_time=5):
         self._tracks = []
+        self._deadtracks = []
         self._dt = deadtrack_time
         self.update_times = []
+        self.dead_updates = []
         self._errs = np.array([30, 30, 1, 4, 4, 1.])
 
     def add(self, t, current_time, threshold=10):
@@ -157,13 +162,14 @@ class TrackManager(object):
             if np.any(dists < threshold):
                 tr = np.where(dists == dists.min())[0][0]
                 self._tracks[tr].merge(t)
-                self.update_times[tr] = current_time
+                if current_time not in self.update_times[tr]:
+                    self.update_times[tr].append(current_time)
             else:
                 self._tracks.append(t)
-                self.update_times.append(current_time)
+                self.update_times.append([current_time])
         else:
             self._tracks.append(t)
-            self.update_times.append(current_time)
+            self.update_times.append([current_time])
 
     def propogate(self, ts):
         # For each of the tracks, update the position based on radial velocity
@@ -195,10 +201,12 @@ class TrackManager(object):
                 del self.update_times[idx]
 
     def update(self, ts):
-        nuke = [idx for idx in range(len(self._tracks)) if self.update_times[idx] < ts - self._dt]
+        nuke = [idx for idx in range(len(self._tracks)) if self.update_times[idx][-1] < ts - self._dt]
         for idx in sorted(nuke, reverse=True):
-            del self._tracks[idx]
-            del self.update_times[idx]
+            self._deadtracks.append(self._tracks.pop(idx))
+            self.dead_updates.append(self.update_times.pop(idx))
+            # del self._tracks[idx]
+            # del self.update_times[idx]
 
     def getTrackPosVel(self):
         return np.array([[t.e, t.n, t.u, t.ve, t.vn, t.vu] for t in self._tracks])
@@ -206,3 +214,7 @@ class TrackManager(object):
     @property
     def tracks(self):
         return self._tracks
+
+    @property
+    def deadtracks(self):
+        return self._deadtracks

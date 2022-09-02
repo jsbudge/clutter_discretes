@@ -49,7 +49,7 @@ gimbal_fnme = [
 csv_fnme = './test.csv'
 do_stanag = False
 do_video = True
-max_cpi_count = 1500
+max_cpi_count = 500
 
 # Other settings are contained in the XML file in this same directory, grab them
 config = ExoConfiguration()
@@ -284,9 +284,9 @@ with open(csv_fnme, 'w') as csv:
 
         # Add the detections we got to the dwell track manager
         for t in targetList:
-            tracker.add(t, ts[0])
+            tracker.add(t, cpi_count)
 
-        tracker.update(ts[0])
+        tracker.update(cpi_count)
         tracker.fuse()
         tracker.propogate(timeSinceValidCPI if timeSinceValidCPI > 0 else cpi_time)
 
@@ -470,9 +470,27 @@ imageDat = ax.imshow(
     extent=[0.5 * velStep, (wrapVel * 2 - velStep / 2.0),
             myRanges[0], myRanges[-1]], aspect='auto',
     vmin=plotdata[0].max() - 60, vmax=plotdata[0].max())
-targ_log = np.array(tracker.tracks[0].log)
-targ_rvel = np.linalg.norm(targ_log[:, 3:], axis=1)
-trackplot, = ax.scatter(targ_rvel[0], myRanges[int(tracker.tracks[0].range_idx)])
+targ_rvel_array = [[] for _ in range(cpi_count)]
+for tidx, t in enumerate(tracker.tracks):
+    targ_log = np.array(t.log)
+    targ_rvel = np.linalg.norm(targ_log[:, 3:], axis=1)
+    for cpi in range(len(plotdata)):
+        if cpi in tracker.update_times[tidx]:
+            nt = [idx for idx in range(len(tracker.update_times[tidx])) if cpi == tracker.update_times[tidx][idx]][0]
+            targ_rvel_array[cpi].append([targ_rvel[nt], myRanges[int(t.range_idx)]])
+for tidx, t in enumerate(tracker.deadtracks):
+    targ_log = np.array(t.log)
+    targ_rvel = np.linalg.norm(targ_log[:, 3:], axis=1)
+    for cpi in range(len(plotdata)):
+        if cpi in tracker.dead_updates[tidx]:
+            nt = [idx for idx in range(len(tracker.dead_updates[tidx])) if cpi == tracker.dead_updates[tidx][idx]][0]
+            targ_rvel_array[cpi].append([targ_rvel[nt], myRanges[int(t.range_idx)]])
+for n in range(cpi_count):
+    if len(targ_rvel_array[n]) != 0:
+        targ_rvel_array[n] = np.array(targ_rvel_array[n])
+    else:
+        targ_rvel_array[n] = np.array([[0, 0.]])
+trackplot, = ax.plot(targ_rvel_array[0][:, 0], targ_rvel_array[0][:, 1], 'ro', markersize=15, fillstyle='none')
 ax.set_xlabel('Radial Velocity (m/s)')
 ax.set_ylabel('Range (m)')
 ax.set_title('Nuts')
@@ -485,7 +503,8 @@ truthPlotDat, = ax.plot(0, myRanges[0], 'ro', markersize=15, fillstyle='none')
 def init():
     # Set the image data with random noise
     imageDat.set_array(np.random.random((nsam, cpi_len)))
-    trackplot.set_array(targ_rvel[0], myRanges[int(tracker.tracks[0].range_idx)])
+    trackplot.set_xdata(targ_rvel_array[0][:, 0])
+    trackplot.set_ydata(targ_rvel_array[0][:, 1])
     lowerVThreshDat.set_xdata(20)
     upperVThreshDat.set_xdata(60)
     truthPlotDat.set_xdata(0)
@@ -497,7 +516,8 @@ def init():
 def animate(i):
     # Set the plot data
     imageDat.set_array(plotdata[i])
-    trackplot.set_array(targ_rvel[i], myRanges[int(tracker.tracks[0].range_idx)])
+    trackplot.set_xdata(targ_rvel_array[i][:, 0])
+    trackplot.set_ydata(targ_rvel_array[i][:, 1])
     lowerVThreshDat.set_xdata(threshVel + velStep)
     upperVThreshDat.set_xdata(wrapVel * 2 - threshVel + velStep)
     ax.set_title('CPINum: %d' % i)
