@@ -12,43 +12,65 @@ kb = 1.3806503e-23
 T0 = 290.0
 
 
-class Target:
+@dataclass
+class Target(object):
+    rad_vel: float
+    range: float
+    ant_pos: list
+    ant_vel: list
+    rng_err: float = 5.
+    dopp_err: float = 2.
 
-    def __init__(self, fd_o, r_o, ant_pos, ant_vel):
-        init_state = np.array([fd_o, r_o, *ant_pos, *ant_vel])
-        self._kf = UKF(init_state, process, measure)
-        self.poss_z = np.zeros((8,))
-        self.n_z = 0
-
-    def accept(self, fd, rng, ant_pos, ant_vel):
-        Vi = np.linalg.pinv(self._kf.Q)
-        mu = self._kf.getMeasurement()
-        x = np.array([fd, rng, *ant_pos, *ant_vel])
+    def accept(self, di, ri):
+        Vi = np.linalg.pinv(np.array([[self.rng_err ** 2, 0],
+                                      [0, self.dopp_err ** 2]]))
+        mu = np.array([self.range, self.rad_vel])
+        x = np.array([ri, di])
         dist = np.sqrt((x - mu).dot(Vi).dot(x - mu))
         if dist < 5:
-            self.poss_z += x
-            self.n_z += 1
+            self.rad_vel = (self.rad_vel + di) / 2
+            self.range = (self.range + ri) / 2
+            return True
+        return False
+
+    @property
+    def meas(self):
+        return np.array([self.rad_vel, self.range, *self.ant_pos, *self.ant_vel])
+
+
+class Track:
+
+    def __init__(self, fd_o, r_o, ant_pos, ant_vel, boresight, origin, fc):
+        targ_pos = calcGroundENU(r_o, ant_pos, boresight, origin)
+        targ_vel = calcDoppVel(boresight, fd_o, fc, ant_vel)
+        init_state = np.array([fd_o, r_o, *ant_pos, *ant_vel, *targ_pos, *targ_vel])
+        self._kf = UKF(init_state, process, measure)
+
+    def accept(self, target, err=None):
+        if err is None:
+            Vi = np.linalg.pinv(np.diag(np.array([5, 2, 2, 2, 2, 2, 2, 2.])))
+        else:
+            Vi = np.linalg.pinv(err)
+        mu = target.meas
+        x = self._kf.x[:8]
+        dist = np.sqrt((x - mu).dot(Vi).dot(x - mu))
+        if dist < 5:
+            self._kf.update(target.meas, 1)
             return True
         else:
             return False
 
-    def predict(self):
+    def update(self, t, cpi):
+        self._kf.update(t, cpi)
+
+    def move(self, ts=0):
         self._kf.predict()
 
-    def update(self, curr_cpi):
-        if self.n_z != 0:
-            z = self.poss_z / self.n_z
-            self._kf.update(z, curr_cpi)
-            self.poss_z = np.zeros((8,))
-            self.n_z = 0
-            return True
-        return False
-
-    def merge(self, to):
-        self._kf.x = (self._kf.x + to.x) / 2
+    def merge(self, ot):
+        pass
 
     @property
-    def x(self):
+    def state(self):
         return self._kf.x
 
 
@@ -59,7 +81,7 @@ def process(x, dt=1.0):
     boresight = new_plane_pos - new_targ_pos
     boresight /= np.linalg.norm(boresight)
     # Radial velocity
-    new_state[0] = np.linalg.norm(x[5:8] - x[11:14]) * np.sign(np.cross(boresight, x[5:8]))
+    new_state[0] = np.linalg.norm(x[5:8] - x[11:14]) * np.sign(np.cross(boresight, x[5:8]))[2]
     # Range to target
     new_state[1] = np.linalg.norm(new_plane_pos - new_targ_pos)
     # Plane pos
@@ -86,10 +108,9 @@ def measure(state, dt=1.0):
     return new_meas
 
 
-def calcGroundENU(rng_idx, platform, boresight, ranges, origin):
+def calcGroundENU(rng, platform, boresight, origin):
     az_inertial = np.arctan2(boresight[0], boresight[1])
     el_inertial = -np.arcsin(boresight[2])
-    rng = np.interp(rng_idx, np.arange(len(ranges)), ranges)
     guess = platform + boresight * rng
     lat, lon, alt = enu2llh(*guess, origin)
     surf_height = getElevation((lat, lon))
@@ -116,7 +137,7 @@ def calcGroundENU(rng_idx, platform, boresight, ranges, origin):
     return platform + Rvec * rng
 
 
-def calcDoppVel(boresight, dopp, dopp_idx, fc, platform_vel):
+def calcDoppVel(boresight, rad_vel, fc, platform_vel):
     # Very first thing, let's resolve wrapping issues if this target
     # has been flagged as being wrapped. It is really kind of sixes to
     # know which way we need to unwrap without further information or
@@ -127,7 +148,7 @@ def calcDoppVel(boresight, dopp, dopp_idx, fc, platform_vel):
     # of computation. Maybe I'll do that later, I'm not sure buys me
     # much of anything.
     eff_az = np.arctan2(boresight[0], boresight[1])
-    radVelVal = np.interp(dopp_idx, np.arange(len(dopp)), dopp) * np.sqrt(boresight[0]**2 + boresight[1]**2)
+    radVelVal = rad_vel * np.sqrt(boresight[0]**2 + boresight[1]**2)
     vr = np.array([np.sin(eff_az) * radVelVal, np.cos(eff_az) * radVelVal, 0])
     vr[2] = 0
     return vr
@@ -142,25 +163,27 @@ class TrackManager(object):
         self._dt = deadtrack_time
         self.update_times = []
         self.dead_updates = []
-        self._errs = np.array([5, 10, 2, 2, 2, 2, 2, 2])
+        self._errs = np.array([30, 30, 1, 1, 1, 1., 1, 1])**2
 
-    def add(self, t, current_time, threshold=10):
+    def add(self, t, current_time, boresight, origin, fc, threshold=10):
         if len(self._tracks) > 1:
             # Calculate Mahal distance between t and the tracks
             Vi = np.linalg.pinv(np.diag(self._errs))
             pv = self.getTrackPosVel()
-            mu = np.array([t.x[8:14]])
+            mu = t.meas
             dists = np.array([np.sqrt((pv[n, :] - mu).dot(Vi.dot(pv[n, :] - mu))) for n in range(len(self._tracks))])
             if np.any(dists < threshold):
                 tr = np.where(dists == dists.min())[0][0]
-                self._tracks[tr].merge(t)
+                self._tracks[tr].update(mu, current_time)
                 if current_time not in self.update_times[tr]:
                     self.update_times[tr].append(current_time)
             else:
-                self._tracks.append(t)
+                nt = Track(t.rad_vel, t.range, t.ant_pos, t.ant_vel, boresight, origin, fc)
+                self._tracks.append(nt)
                 self.update_times.append([current_time])
         else:
-            self._tracks.append(t)
+            nt = Track(t.rad_vel, t.range, t.ant_pos, t.ant_vel, boresight, origin, fc)
+            self._tracks.append(nt)
             self.update_times.append([current_time])
 
     def propogate(self, ts):
@@ -193,19 +216,15 @@ class TrackManager(object):
                 del self.update_times[idx]
 
     def update(self, ts):
-        for t in self._tracks:
-            t.update(ts)
         nuke = [idx for idx in range(len(self._tracks)) if self.update_times[idx][-1] < ts - self._dt]
         for idx in sorted(nuke, reverse=True):
             self._deadtracks.append(self._tracks.pop(idx))
             self.dead_updates.append(self.update_times.pop(idx))
-
-    def predict_all(self):
-        for t in self._tracks:
-            t.predict()
+            # del self._tracks[idx]
+            # del self.update_times[idx]
 
     def getTrackPosVel(self):
-        return np.array([t.x[8:14] for t in self._tracks])
+        return np.array([t.state[:8] for t in self._tracks])
 
     @property
     def tracks(self):

@@ -285,7 +285,7 @@ with open(csv_fnme, 'w') as csv:
 
         # Add the detections we got to the dwell track manager
         for t in targetList:
-            tracker.add(t, cpi_count)
+            tracker.add(t, cpi_count, boresightVec.flatten(), rp.origin, sdr_f[0].fc, threshold=10)
 
         tracker.update(cpi_count)
         tracker.fuse()
@@ -478,14 +478,14 @@ for tidx, t in enumerate(tracker.tracks):
     for cpi in range(len(plotdata)):
         if cpi in tracker.update_times[tidx]:
             nt = [idx for idx in range(len(tracker.update_times[tidx])) if cpi == tracker.update_times[tidx][idx]][0]
-            targ_rvel_array[cpi].append([targ_rvel[nt], myRanges[int(t.range_idx)]])
+            targ_rvel_array[cpi].append([targ_rvel[nt], myRanges[int(t.range)]])
 for tidx, t in enumerate(tracker.deadtracks):
     targ_log = np.array(t.log)
     targ_rvel = np.linalg.norm(targ_log[:, 3:], axis=1)
     for cpi in range(len(plotdata)):
         if cpi in tracker.dead_updates[tidx]:
             nt = [idx for idx in range(len(tracker.dead_updates[tidx])) if cpi == tracker.dead_updates[tidx][idx]][0]
-            targ_rvel_array[cpi].append([targ_rvel[nt], myRanges[int(t.range_idx)]])
+            targ_rvel_array[cpi].append([targ_rvel[nt], myRanges[int(t.range)]])
 for n in range(cpi_count):
     if len(targ_rvel_array[n]) != 0:
         targ_rvel_array[n] = np.array(targ_rvel_array[n])
@@ -533,7 +533,7 @@ anim = animation.FuncAnimation(
 # Save the animation as mp4 video file
 anim.save('./Test_TruthRDVideo.mp4')
 
-tr1 = np.array(tracker.tracks[0].log)
+tr1 = tracker.tracks[0].state[8:11]
 mx, my = np.meshgrid(np.linspace(-100, 500, 30), np.linspace(1300, 2800, 30))
 mlat, mlon, malt = enu2llh(mx.ravel(), my.ravel(), np.zeros((mx.shape[0] * mx.shape[1],)), rp.origin)
 malt = getElevationMap(mlat, mlon)
@@ -541,6 +541,6 @@ me, mn, mu = llh2enu(mlat, mlon, malt, rp.origin)
 fig = px.scatter_3d(x=tr1[:, 0], y=tr1[:, 1], z=tr1[:, 2])
 # fig.add_mesh3d(x=me, y=mn, z=mu)
 for tr in tracker.tracks:
-    tr1 = np.array(tr.log)
+    tr1 = tr.state[8:11]
     fig.add_scatter3d(x=tr1[:, 0], y=tr1[:, 1], z=tr1[:, 2])
 fig.show()
