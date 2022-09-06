@@ -106,7 +106,9 @@ noisePowerLPFs = []
 noisePowerVarLPFs = []
 
 # Initialize the tracker
-tracker = TrackManager()
+# Measurement Noise Covariance
+meas_cov = np.diag(np.array([2., 2., 10, 10, 10, 10, 10, 10, 5, 5])**2)
+tracker = TrackManager(deadtrack_time=2., R=meas_cov)
 
 # Chirp and matched filter calculations
 # chirp = np.fft.fft(genPulse(np.linspace(0, 1, 10), np.linspace(0, 1, 10), nr, rp.fs, fc,
@@ -278,18 +280,19 @@ with open(csv_fnme, 'w') as csv:
 
         """ Segmentation |||||||||||||||||||||||||||||||||||||||||||||||||||||||"""
         # if cpi_count % 2 == 0:
-        tracker.predict_all()
+        tracker.propogate(timeSinceValidCPI)
         targetList = getExoClutterDetectedMoversRVBlob(
             detMap, antPos, boresightVec.flatten(), myRanges, myDopps, antVel, sdr_f[0].fc,
             rp.origin, antAz)
 
         # Add the detections we got to the dwell track manager
+        valid_cpi_time = timeSinceValidCPI if timeSinceValidCPI > 0 else cpi_time
         for t in targetList:
-            tracker.add(t, cpi_count, boresightVec.flatten(), rp.origin, sdr_f[0].fc, threshold=10)
+            tracker.add(t, ts[0], boresightVec.flatten(), rp.origin, sdr_f[0].fc, threshold=20)
 
-        tracker.update(cpi_count)
+        tracker.cullTracks(ts[0])
         tracker.fuse()
-        tracker.propogate(timeSinceValidCPI if timeSinceValidCPI > 0 else cpi_time)
+        # tracker.propogate(timeSinceValidCPI if timeSinceValidCPI > 0 else cpi_time)
 
         """ Parameter Estimation |||||||||||||||||||||||||||||||||||||||||||||||"""
         # First, compute the hAgl (to get closer to the actual hAgl, we should
@@ -473,19 +476,19 @@ imageDat = ax.imshow(
     vmin=plotdata[0].max() - 60, vmax=plotdata[0].max())
 targ_rvel_array = [[] for _ in range(cpi_count)]
 for tidx, t in enumerate(tracker.tracks):
-    targ_log = np.array(t.log)
-    targ_rvel = np.linalg.norm(targ_log[:, 3:], axis=1)
+    targ_log = t.state_log[:, :8]
+    targ_rvel = np.linalg.norm(targ_log[:, 5:], axis=1)
     for cpi in range(len(plotdata)):
         if cpi in tracker.update_times[tidx]:
             nt = [idx for idx in range(len(tracker.update_times[tidx])) if cpi == tracker.update_times[tidx][idx]][0]
-            targ_rvel_array[cpi].append([targ_rvel[nt], myRanges[int(t.range)]])
+            targ_rvel_array[cpi].append([targ_rvel[nt], targ_log[nt, 1]])
 for tidx, t in enumerate(tracker.deadtracks):
-    targ_log = np.array(t.log)
-    targ_rvel = np.linalg.norm(targ_log[:, 3:], axis=1)
+    targ_log = t.state_log[:, :8]
+    targ_rvel = np.linalg.norm(targ_log[:, 5:], axis=1)
     for cpi in range(len(plotdata)):
         if cpi in tracker.dead_updates[tidx]:
             nt = [idx for idx in range(len(tracker.dead_updates[tidx])) if cpi == tracker.dead_updates[tidx][idx]][0]
-            targ_rvel_array[cpi].append([targ_rvel[nt], myRanges[int(t.range)]])
+            targ_rvel_array[cpi].append([targ_rvel[nt], targ_log[nt, 1]])
 for n in range(cpi_count):
     if len(targ_rvel_array[n]) != 0:
         targ_rvel_array[n] = np.array(targ_rvel_array[n])
@@ -533,7 +536,7 @@ anim = animation.FuncAnimation(
 # Save the animation as mp4 video file
 anim.save('./Test_TruthRDVideo.mp4')
 
-tr1 = tracker.tracks[0].state[8:11]
+tr1 = tracker.tracks[0].state_log[:, :8]
 mx, my = np.meshgrid(np.linspace(-100, 500, 30), np.linspace(1300, 2800, 30))
 mlat, mlon, malt = enu2llh(mx.ravel(), my.ravel(), np.zeros((mx.shape[0] * mx.shape[1],)), rp.origin)
 malt = getElevationMap(mlat, mlon)
@@ -541,6 +544,6 @@ me, mn, mu = llh2enu(mlat, mlon, malt, rp.origin)
 fig = px.scatter_3d(x=tr1[:, 0], y=tr1[:, 1], z=tr1[:, 2])
 # fig.add_mesh3d(x=me, y=mn, z=mu)
 for tr in tracker.tracks:
-    tr1 = tr.state[8:11]
+    tr1 = tr.state_log[:, :8]
     fig.add_scatter3d(x=tr1[:, 0], y=tr1[:, 1], z=tr1[:, 2])
 fig.show()
