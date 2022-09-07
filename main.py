@@ -49,7 +49,7 @@ gimbal_fnme = [
 csv_fnme = './test.csv'
 do_stanag = False
 do_video = True
-max_cpi_count = 500
+max_cpi_count = 100
 
 # Other settings are contained in the XML file in this same directory, grab them
 config = ExoConfiguration()
@@ -107,7 +107,7 @@ noisePowerVarLPFs = []
 
 # Initialize the tracker
 # Measurement Noise Covariance
-meas_cov = np.diag(np.array([2., 2., 10, 10, 10, 10, 10, 10, 5, 5])**2)
+meas_cov = np.diag(np.array([2., 3.5, .2, .2, .2, .2, .2, .2, .5, .5])**2)
 tracker = TrackManager(deadtrack_time=2., R=meas_cov)
 
 # Chirp and matched filter calculations
@@ -129,6 +129,7 @@ slowTimeWithChannels[1, ...] = slowTimeWindow.T
 slow_time_gpu = cupy.array(slowTimeWithChannels, dtype=np.complex128)
 fig = None
 plotdata = []
+cpi_times = []
 
 with open(csv_fnme, 'w') as csv:
     idx_t = np.arange(nframes)
@@ -280,7 +281,7 @@ with open(csv_fnme, 'w') as csv:
 
         """ Segmentation |||||||||||||||||||||||||||||||||||||||||||||||||||||||"""
         # if cpi_count % 2 == 0:
-        tracker.propogate(timeSinceValidCPI)
+        tracker.propogate(ts[0])
         targetList = getExoClutterDetectedMoversRVBlob(
             detMap, antPos, boresightVec.flatten(), myRanges, myDopps, antVel, sdr_f[0].fc,
             rp.origin, antAz)
@@ -288,11 +289,12 @@ with open(csv_fnme, 'w') as csv:
         # Add the detections we got to the dwell track manager
         valid_cpi_time = timeSinceValidCPI if timeSinceValidCPI > 0 else cpi_time
         for t in targetList:
-            tracker.add(t, ts[0], boresightVec.flatten(), rp.origin, sdr_f[0].fc, threshold=20)
+            tracker.add(t, ts[0], boresightVec.flatten(), rp.origin, sdr_f[0].fc, dt=valid_cpi_time, threshold=10)
+
+        cpi_times.append(ts[0])
 
         tracker.cullTracks(ts[0])
         tracker.fuse()
-        # tracker.propogate(timeSinceValidCPI if timeSinceValidCPI > 0 else cpi_time)
 
         """ Parameter Estimation |||||||||||||||||||||||||||||||||||||||||||||||"""
         # First, compute the hAgl (to get closer to the actual hAgl, we should
@@ -460,6 +462,7 @@ with open(csv_fnme, 'w') as csv:
                     csvWriter.writerow(cpiData)
                     # break
         if cpi_count >= max_cpi_count:
+            tracker.removeSingletons()
             break
 del slow_time_gpu
 del mfilt_gpu
@@ -477,18 +480,16 @@ imageDat = ax.imshow(
 targ_rvel_array = [[] for _ in range(cpi_count)]
 for tidx, t in enumerate(tracker.tracks):
     targ_log = t.state_log[:, :8]
-    targ_rvel = np.linalg.norm(targ_log[:, 5:], axis=1)
-    for cpi in range(len(plotdata)):
+    for cidx, cpi in enumerate(cpi_times):
         if cpi in tracker.update_times[tidx]:
             nt = [idx for idx in range(len(tracker.update_times[tidx])) if cpi == tracker.update_times[tidx][idx]][0]
-            targ_rvel_array[cpi].append([targ_rvel[nt], targ_log[nt, 1]])
+            targ_rvel_array[cidx].append([targ_log[nt, 0], targ_log[nt, 1]])
 for tidx, t in enumerate(tracker.deadtracks):
     targ_log = t.state_log[:, :8]
-    targ_rvel = np.linalg.norm(targ_log[:, 5:], axis=1)
-    for cpi in range(len(plotdata)):
+    for cidx, cpi in enumerate(cpi_times):
         if cpi in tracker.dead_updates[tidx]:
             nt = [idx for idx in range(len(tracker.dead_updates[tidx])) if cpi == tracker.dead_updates[tidx][idx]][0]
-            targ_rvel_array[cpi].append([targ_rvel[nt], targ_log[nt, 1]])
+            targ_rvel_array[cidx].append([targ_log[nt, 0], targ_log[nt, 1]])
 for n in range(cpi_count):
     if len(targ_rvel_array[n]) != 0:
         targ_rvel_array[n] = np.array(targ_rvel_array[n])
@@ -536,14 +537,14 @@ anim = animation.FuncAnimation(
 # Save the animation as mp4 video file
 anim.save('./Test_TruthRDVideo.mp4')
 
-tr1 = tracker.tracks[0].state_log[:, :8]
+tr1 = tracker.tracks[0].state_log[:, :14]
 mx, my = np.meshgrid(np.linspace(-100, 500, 30), np.linspace(1300, 2800, 30))
 mlat, mlon, malt = enu2llh(mx.ravel(), my.ravel(), np.zeros((mx.shape[0] * mx.shape[1],)), rp.origin)
 malt = getElevationMap(mlat, mlon)
 me, mn, mu = llh2enu(mlat, mlon, malt, rp.origin)
-fig = px.scatter_3d(x=tr1[:, 0], y=tr1[:, 1], z=tr1[:, 2])
-# fig.add_mesh3d(x=me, y=mn, z=mu)
+fig = px.scatter_3d(x=tr1[:, 11], y=tr1[:, 12], z=tr1[:, 13])
+fig.add_mesh3d(x=me, y=mn, z=mu)
 for tr in tracker.tracks:
-    tr1 = tr.state_log[:, :8]
-    fig.add_scatter3d(x=tr1[:, 0], y=tr1[:, 1], z=tr1[:, 2])
+    tr1 = tr.state_log[:, :14]
+    fig.add_scatter3d(x=tr1[:, 11], y=tr1[:, 12], z=tr1[:, 13])
 fig.show()

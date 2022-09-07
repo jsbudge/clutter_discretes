@@ -21,7 +21,7 @@
         <RangeInterpFactor>1</RangeInterpFactor>
         <DopplerInterpFactor>1</DopplerInterpFactor>
         <FDelay>0.0</FDelay>
-        <ExoBroadeningFactor>4.0</ExoBroadeningFactor>
+        <ExoBroadeningFactor>6.0</ExoBroadeningFactor>
         <FalseAlarmFactor>1e-10</FalseAlarmFactor>
         <TruthExistence>False</TruthExistence>
     </ProcParameters>
