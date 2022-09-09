@@ -49,7 +49,7 @@ gimbal_fnme = [
 csv_fnme = './test.csv'
 do_stanag = False
 do_video = True
-max_cpi_count = 500
+max_cpi_count = 100
 
 # Other settings are contained in the XML file in this same directory, grab them
 config = ExoConfiguration()
@@ -107,8 +107,30 @@ noisePowerVarLPFs = []
 
 # Initialize the tracker
 # Measurement Noise Covariance
-meas_cov = np.diag(np.array([2., 3.5, .2, .2, .2, .2, .2, .2, .5, .5])**2)
-tracker = TrackManager(deadtrack_time=2., R=meas_cov)
+meas_cov = np.diag(np.array([2., 3.5, .2, .2, .2, .2, .2, .2, .5, .5, 3.5])**2)
+dt = cpi_time
+state_cov = np.array([[1, dt, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, dt],
+                      [dt, dt**2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, dt**2],
+                      [0, 0, dt**4 / 4, 0, 0, dt**3 / 2, 0, 0, dt**2 / 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, dt**4 / 4, 0, 0, dt**3 / 2, 0, 0, dt**2 / 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, dt**4 / 4, 0, 0, dt**3 / 2, 0, 0, dt**2 / 2, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, dt**3 / 2, 0, 0, dt**2, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, dt**3 / 2, 0, 0, dt**2, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, dt**3 / 2, 0, 0, dt**2, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, dt**2 / 2, 0, 0, dt, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, dt**2 / 2, 0, 0, dt, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, dt**2 / 2, 0, 0, dt, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, dt**2, dt, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, dt, 1, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, dt**2, dt, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, dt, 1, 0],
+                      [dt, dt**2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+state_cov += np.eye(19) * 1e-6
+state_cov *= 10
+tracker = TrackManager(deadtrack_time=2., R=meas_cov, Q=state_cov)
 
 # Chirp and matched filter calculations
 # chirp = np.fft.fft(genPulse(np.linspace(0, 1, 10), np.linspace(0, 1, 10), nr, rp.fs, fc,
@@ -281,7 +303,7 @@ with open(csv_fnme, 'w') as csv:
 
         """ Segmentation |||||||||||||||||||||||||||||||||||||||||||||||||||||||"""
         # if cpi_count % 2 == 0:
-        tracker.propogate(ts[0])
+        tracker.propogate(None)
         targetList = getExoClutterDetectedMoversRVBlob(
             detMap, antPos, boresightVec.flatten(), myRanges, myDopps, antVel, sdr_f[0].fc,
             rp.origin, antAz)

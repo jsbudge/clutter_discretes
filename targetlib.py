@@ -39,7 +39,7 @@ class Target(object):
     @property
     def meas(self):
         return np.array([self.rad_vel, self.range, *self.ant_pos, *self.ant_vel,
-                         self.az, self.el])
+                         self.az, self.el, self.range])
 
 
 class Track:
@@ -48,25 +48,14 @@ class Track:
         targ_pos = calcGroundENU(r_o, ant_pos, boresight, origin)
         # targ_vel = calcDoppVel(boresight, fd_o, fc, ant_vel)
         init_state = np.array([fd_o, r_o, *ant_pos, *ant_vel, 0, 0, 0, *targ_pos,
-                               np.arctan2(boresight[0], boresight[1]), 0, np.arcsin(boresight[2]), 0, 0])
+                               np.arctan2(boresight[0], boresight[1]), 0, np.arcsin(boresight[2]), 0, r_o])
         self.origin = origin
         self._kf = UKF(init_state, self.process, self.measure, init_time, dt=dt, adaptive_constant=None, Q=Q, R=R)
-
-    def accept(self, target):
-        Vi = np.linalg.pinv(self._kf.R)
-        mu = target.meas
-        x = np.array([*self._kf.x[:8], self._kf.x[17], self._kf.x[19]])
-        dist = np.sqrt((x - mu).dot(Vi).dot(x - mu))
-        if dist < 5:
-            self._kf.update(target.meas, 1)
-            return True
-        else:
-            return False
 
     def update(self, z, ts):
         self._kf.update(z, ts)
 
-    def move(self, ts=None):
+    def propogate(self, ts=None):
         self._kf.predict(ts)
 
     def merge(self, ot):
@@ -78,7 +67,7 @@ class Track:
 
     @property
     def meas(self):
-        return np.array([*self._kf.x[:8], self._kf.x[14], self._kf.x[16]])
+        return np.array([*self._kf.x[:8], self._kf.x[14], self._kf.x[16], self._kf.x[1]])
 
     @property
     def state_log(self):
@@ -115,11 +104,11 @@ class Track:
         # Inertial grazing angle velocity
         new_state[17] = x[17]
         # Error state for range
-        new_state[18] = np.linalg.norm(new_plane_pos - new_state[11:14]) - rng
+        new_state[18] = np.linalg.norm(new_plane_pos - new_state[11:14])
         return new_state
 
     def measure(self, state, dt=1.0):
-        new_meas = np.zeros((10,))
+        new_meas = np.zeros((11,))
         # Radial velocity
         new_meas[0] = state[0]
         # Range to target
@@ -132,6 +121,8 @@ class Track:
         new_meas[8] = state[14]
         # Inertial grazing
         new_meas[9] = state[16]
+        # Error between state range and actual range
+        new_meas[10] = state[1]
         return new_meas
 
 
@@ -187,7 +178,7 @@ class TrackManager(object):
     def propogate(self, ts):
         # For each of the tracks, update the position based on radial velocity
         for tr in self._tracks:
-            tr.move(ts)
+            tr.propogate(ts)
 
     def fuse(self, threshold=10):
         Vi = np.linalg.pinv(self._errs)
