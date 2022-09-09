@@ -13,9 +13,6 @@ inch_to_m = .0254
 def getDopplerLine(effAzI, rangeBins, antVel, antPos, nearRangeGrazeR, azBeamwidthHalf, PRF, wavelength, origin):
     """Compute the expected Doppler vs range for the given platform geometry"""
 
-    # Get the grazing angle in the near range
-    # nearRangeGrazeR = radar.nearRangeD * DTR
-
     # compute the grazing angle for the near range to start
     (nearRangeGrazeR, Rvec, surfaceHeight, numIter) = computeGrazingAngle(
         effAzI, nearRangeGrazeR, antPos, rangeBins[0], origin)

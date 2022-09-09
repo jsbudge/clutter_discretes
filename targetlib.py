@@ -46,9 +46,9 @@ class Track:
 
     def __init__(self, fd_o, r_o, ant_pos, ant_vel, boresight, origin, fc, init_time, dt=1.0, Q=None, R=None):
         targ_pos = calcGroundENU(r_o, ant_pos, boresight, origin)
-        targ_vel = calcDoppVel(boresight, fd_o, fc, ant_vel)
-        init_state = np.array([fd_o, r_o, *ant_pos, *ant_vel, 0, 0, 0, *targ_pos, *targ_vel,
-                               np.arctan2(boresight[0], boresight[1]), 0, np.arcsin(boresight[2]), 0])
+        # targ_vel = calcDoppVel(boresight, fd_o, fc, ant_vel)
+        init_state = np.array([fd_o, r_o, *ant_pos, *ant_vel, 0, 0, 0, *targ_pos,
+                               np.arctan2(boresight[0], boresight[1]), 0, np.arcsin(boresight[2]), 0, 0])
         self.origin = origin
         self._kf = UKF(init_state, self.process, self.measure, init_time, dt=dt, adaptive_constant=None, Q=Q, R=R)
 
@@ -78,7 +78,7 @@ class Track:
 
     @property
     def meas(self):
-        return np.array([*self._kf.x[:8], self._kf.x[17], self._kf.x[19]])
+        return np.array([*self._kf.x[:8], self._kf.x[14], self._kf.x[16]])
 
     @property
     def state_log(self):
@@ -87,16 +87,15 @@ class Track:
     def process(self, x, dt=1.0):
         new_state = np.zeros((len(x),))
         new_plane_pos = x[2:5] + x[5:8] * dt
-        new_targ_pos = x[11:14] + x[14:17] * dt
-        rng = np.linalg.norm(new_plane_pos - new_targ_pos)
-        new_az = x[17] + x[18] * dt
-        new_el = x[19] + x[20] * dt
+        rng = x[1] + x[0] * dt
+        new_az = x[14] + x[15] * dt
+        new_el = x[16] + x[17] * dt
         # Inertial grazing angle
         boresight = np.array([np.cos(new_el) * np.sin(new_az),
                   np.cos(new_el) * np.cos(new_az),
-                  -np.sin(new_el)])
+                  np.sin(new_el)])
         # Radial velocity
-        new_state[0] = np.linalg.norm(x[5:8] - x[14:17]) * np.sign(np.cross(boresight, x[5:8]))[2]
+        new_state[0] = x[0]
         # Range to target
         new_state[1] = rng
         # Plane pos
@@ -106,17 +105,17 @@ class Track:
         # Plane accel
         new_state[8:11] = x[8:11]
         # Target pos
-        new_state[11:14] = new_targ_pos
-        # Target vel
-        new_state[14:17] = x[14:17]
+        new_state[11:14] = boresight * rng + new_plane_pos
         # Inertial Azimuth
-        new_state[17] = new_az
+        new_state[14] = new_az
         # Inertial Azimuth Velocity
-        new_state[18] = x[18]
+        new_state[15] = x[15]
         # Intertial Grazing Angle
-        new_state[19] = new_el
+        new_state[16] = new_el
         # Inertial grazing angle velocity
-        new_state[20] = x[20]
+        new_state[17] = x[17]
+        # Error state for range
+        new_state[18] = np.linalg.norm(new_plane_pos - new_state[11:14]) - rng
         return new_state
 
     def measure(self, state, dt=1.0):
@@ -130,9 +129,9 @@ class Track:
         # Plane vel
         new_meas[5:8] = state[5:8]
         # Inertial Azimuth
-        new_meas[8] = state[17]
+        new_meas[8] = state[14]
         # Inertial grazing
-        new_meas[9] = state[19]
+        new_meas[9] = state[16]
         return new_meas
 
 
@@ -218,7 +217,7 @@ class TrackManager(object):
         nuke = [idx for idx in range(len(self._tracks)) if self.update_times[idx][-1] < ts - self._dt]
         for idx in sorted(nuke, reverse=True):
             # If it's not truly a track, just delete it
-            if len(self.update_times[idx]) < 2:
+            if len(self.update_times[idx]) < 3:
                 del self._tracks[idx]
                 del self.update_times[idx]
             else:
@@ -226,7 +225,7 @@ class TrackManager(object):
                 self.dead_updates.append(self.update_times.pop(idx))
 
     def removeSingletons(self):
-        nuke = [idx for idx in range(len(self._tracks)) if len(self.update_times[idx]) < 2]
+        nuke = [idx for idx in range(len(self._tracks)) if len(self.update_times[idx]) < 3]
         for idx in sorted(nuke, reverse=True):
             del self._tracks[idx]
             del self.update_times[idx]

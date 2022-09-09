@@ -49,7 +49,7 @@ gimbal_fnme = [
 csv_fnme = './test.csv'
 do_stanag = False
 do_video = True
-max_cpi_count = 100
+max_cpi_count = 500
 
 # Other settings are contained in the XML file in this same directory, grab them
 config = ExoConfiguration()
@@ -537,14 +537,20 @@ anim = animation.FuncAnimation(
 # Save the animation as mp4 video file
 anim.save('./Test_TruthRDVideo.mp4')
 
-tr1 = tracker.tracks[0].state_log[:, :14]
+tr1 = tracker.tracks[0].state_log[1:, :14]
 mx, my = np.meshgrid(np.linspace(-100, 500, 30), np.linspace(1300, 2800, 30))
 mlat, mlon, malt = enu2llh(mx.ravel(), my.ravel(), np.zeros((mx.shape[0] * mx.shape[1],)), rp.origin)
 malt = getElevationMap(mlat, mlon)
 me, mn, mu = llh2enu(mlat, mlon, malt, rp.origin)
 fig = px.scatter_3d(x=tr1[:, 11], y=tr1[:, 12], z=tr1[:, 13])
-fig.add_mesh3d(x=me, y=mn, z=mu)
+# fig.add_mesh3d(x=me, y=mn, z=mu)
 for tr in tracker.tracks:
-    tr1 = tr.state_log[:, :14]
+    tr1 = tr.state_log[1:, :14]
     fig.add_scatter3d(x=tr1[:, 11], y=tr1[:, 12], z=tr1[:, 13])
 fig.show()
+
+st_cov = tracker._tracks[0]._kf.P
+from kalman import oofm
+test = 10.**oofm(st_cov)
+test[test < 1e-6] = 0
+test = test * np.sign(st_cov)
